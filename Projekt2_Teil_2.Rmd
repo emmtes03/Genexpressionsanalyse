@@ -1,0 +1,391 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+### Aufgabe 7a: Einlesen der Bedtools_out_all.bed Datei in R
+```{r}
+# Einlesen der Datei
+yeast_data_unedited= read.table("Bedtools_out_all.bed", header = FALSE, sep = "\t")
+head(yeast_data_unedited)
+```
+### Aufgaben 7b: Erstellen eines Dataframe Objekt auf Grundlagen der Anforderungen
+
+```{r}
+# Umbenennung der Spalten entsprechend der Reihenfolge der Bedtools-Aufrufe
+colnames(yeast_data_unedited) = c("Chromosom", "Start", "Ende", "Gen-ID", "Score-Wert", "Strangrichtung", "Startposition des Features", " Endposition des Features", "Col9", "Col10", "Col11", "Col12","B1", "B2", "B3", "C1", "C2", "C3")
+
+# Umbenennung der Zeilen entsprechend der Gen-IDs
+rownames(yeast_data_unedited) = yeast_data_unedited$"Gen-ID"
+
+# Entfernen der Spalte der Spalten 1-12
+yeast_data = yeast_data_unedited[,13:18]
+
+# Anzeigen der ersten paar Zeilen des neu erstellten DataFrames
+head(yeast_data)
+```
+## Aufgabe8: DESeq2 Normalisierung
+## Aufgabe 8a: Erstellen eines Metaobjektes
+* Die Metadaten enthalten Informationen über die Bedingungen, unter denen die Proben gesammelt wurden   
+* Jede Zeile repräsentiert da eine Probe und jede Spalte eine Eigenschaft  
+* Die Struktur der Metadaten sollte immer den Proben im Datensatz entsprechen  
+      o	Insb. die Spaltennamen sollten übereinstimmen, damit eine korrekte Zuordnung erfolgen kann  
+
+```{r}
+metadata=data.frame(samples=colnames(yeast_data),condition=rep(c("B","C"),each=3))
+metadata
+```
+* Erstellt Metadaten für ein DESeq-Objekt basierend auf einem Datensatz mit Hefezellen (von yeast_data)  
+* Samples: Diese Spalte enthält die Bezeichnungen der einzelnen Proben  
+* Condition: Diese Spalte beschreibt die Bedingungen, unter denen die Proben gesammelt oder gruppiert wurden   
+  * Dafür wird der Wert „B“ für die ersten 3 Proben und „C“ für die nächsten 3 Proben verwendet   
+
+#### Erstellen eines DESeq2 Objektes 
+DESeq2 installieren
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("DESeq2")
+```
+
+DESeq2 laden
+```{r}
+library("DESeq2")
+```
+#### Erstellen eines DEseqDataSet
+```{r}
+# countData= Dort wird die Expressionmatritx übergeben, in denen die Expressionswerte sind
+# colData= Hier wird die Metadaten Tabelle, mit den Informationen über die Bedingungen übergeben
+# design= hier wird das Design der Analyse spezifiziert. sollte dem Namen der Bedingungsspalte in den Metadaten entsprechen
+dds = DESeqDataSetFromMatrix(countData= yeast_data,
+                             colData= metadata,
+                             design= ~ condition)
+dds
+```
+### Aufgabe 8c: Counts der Reads je Sample
+Anzahl der Gene, die in der Summe weniger oder gleich 10 Read Counts haben:  
+
+* Insgesamt sind davon 6068 Gene betroffen  
+* Diese wurden in der folgenden Aufgabe entfernt, um die Speichergröße des dds Datenobjekts zu vermindern und die Geschwindigkeit de DESeq2 Funktionen zu erhöhen  
+
+```{r}
+#Quelle:https://introtogenomics.readthedocs.io/en/latest/2021.11.11.DeseqTutorial.html
+#Read Counts darstellen lassen mit counts()
+all_counts = counts(dds)
+head(all_counts)
+# Gene die insgesamt weniger als 10 Counts haben
+few_counts = rowSums(counts(dds)) <= 10
+head(few_counts,20)
+# Anzahl der Gene, die gleich oder weniger als 10 Reads in der Summe haben
+length(few_counts)
+```
+#### Alle Zeilen löschen, die in der Summer weniger als 10 Read Counts haben
+```{r}
+keep = rowSums(counts(dds)) > 10
+dds = dds[keep,]
+```
+
+### Aufgabe 8d: Normalisierung der Daten
+```{r}
+#Durchführung der Median-of-Ratios-Normalisierungsmethode
+#Quelle:https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+dds = estimateSizeFactors(dds)
+
+#Den auf jede Stichprobe angewendeten Normalisierungsfaktor ansehen mit sizeFactors()
+sizeFactors(dds)
+
+#Ausgabe der Normalisierten Matrix 
+normalized_counts=counts(dds, normalized=TRUE)
+head(normalized_counts)
+```
+### Aufgabe 8f: Erstellen von Boxplots für die normalisierten und nicht normalisierten Read-Counts+
+
+```{r}
+# Nicht normalisierte Counts
+b1= log(counts(dds)[,1],2)
+b2= log(counts(dds)[,2],2)
+b3= log(counts(dds)[,3],2)
+
+c1= log(counts(dds)[,4],2)
+c2= log(counts(dds)[,5],2)
+c3= log(counts(dds)[,6],2)
+
+#Normalisierte Counts
+n_b1= log(normalized_counts[,1],2)
+n_b2= log(normalized_counts[,2],2)
+n_b3= log(normalized_counts[,3],2)
+n_c1= log(normalized_counts[,4],2)
+n_c2= log(normalized_counts[,5],2)
+n_c3= log(normalized_counts[,6],2)
+
+#Boxplot für die nicht normalisierten Counts
+not_normalized_boxplot= boxplot(b1, b2, b3, c1, c2, c3, main= "Nicht Normalisiert", names= c("B1", "B2", "B3", "C1", "C2", "C3"), ylab="Read Counts", xlab="samples")
+#Boxplot für die normalisierten Counts
+normalized_boxplot= boxplot(n_b1, n_b2, n_b3, n_c1, n_c2, n_c3, main= "Normalisiert", names= c("B1", "B2", "B3", "C1", "C2", "C3"), ylab="Read Counts", xlab="samples")
+```
+
+#### Vergleichen der Boxplots für normalisierte und nicht-normalisierte Counts
+
+* Dargestellt sind die jeweiligen Boxplots für die nicht-normalisierten und normalisierten Expressionswerte (logarithmiert zur Basis 2)  
+* Beide Graphiken zeigen einen Median um den Wert 10 herum  
+  * Wobei bei den normalisierten Werten die Mediane weniger schwankend sind als in den nicht-normalisierten Boxplots  
+  * es ist ein weitaus konstanterer Median zu beobachten  
+* Die Streuung ist in den jeweiligen Boxplots ähnlich (Ähnliche Breite der Boxen) und die Boxplots befinden sich alle ungefähr auf der gleichen Höhe (Überlappung) was für eine weitausgehende Varianzhomogenität spricht  
+  * Auch hier ist wieder erkennbar, dass dies wesentlich mehr auf die Normalisierten Daten zutrifft als auf die Nicht-Normalisierten Daten  
+  * Die Formen und die Überlappung der Boxen der Boxplots der normalisierten Daten zeigen eine deutlich höhere Ähnlichkeit zueinander als bei den Nicht-normalisierten Boxplots  
+* Es ist zudem erkennbar, dass die Boxplots in beiden Graphiken einen symmetrischen Aufbau haben und die Whiskers in beiden Graphiken in den jeweiligen Boxplots ungefähr gleich lang sind. Zudem sind haben in beiden alle Boxplots sowohl im niedrigen als auch im höhen Bereich viele Ausreißer.  
+  * Bei den normalisierten Daten ähneln sich die Boxplots von der Form her mehr als die nicht-normalisierten Daten.   
+  * Auch die Länge der Whiskers haben bei den normalisierten Daten eine höhere Ähnlichkeit zueinander als bei den nicht-normalisierten Daten.   
+  * Abgesehen von den Ausreißern, scheinen die Daten in beiden Graphiken weitaus normalverteilt zu sein, wobei dies noch mehr auf die normalisierten als auf die nicht-normalisierten Daten     zutrifft.     
+
+
+### Aufgabe 9: PCA in R
+```{r}
+transformed_normalized_counts= SummarizedExperiment(log(normalized_counts,2), colData=colData(dds))
+plotPCA(DESeqTransform(transformed_normalized_counts))
+plotPCA(DESeqTransform(transformed_normalized_counts), returnData=TRUE)
+```
+#### Frage: Können die Proben gut separiert werden? Warum ist eine gute Separierung der Daten wichtig?
+
+* Die Proben B und C können gut nach PC1(96% Varianz) und weniger gut nach PC2 (1% Varianz) separiert werden  
+* Dadurch könnte der Hauptanteil der Variabilität zwischen den Proben anhand der PC1-Achse erklärt werden  
+  * Wobei auch hier zu beachten ist, dass die PC1-Achse womöglich nicht alle wichtigen Unterschiede zwischen den Proben erfasst   
+* Eine gute Separierung ist wichtig, um auf strukturelle Unterschiede zwischen den Proben hinweisen zu können  
+* Dies trägt zu der Aussage bei, dass unterschiedlichen Bedingungen Unterschiede in der Expression vorliegen und es sind auch Cluster identifizierbar  
+* Durch eine gute Separierung kann man auf eine gute Konsistenz und Zuverlässigkeit der experimentellen Bedingungen und Daten schließen (bzw. Qualität der Daten)  
+
+
+## Aufgabe 10: Differentiell exprimierte Gene
+###Aufgabe 10a: Kontrolldaten als Referenzdaten verwenden
+Hier: Die Kultur im Chemostat wird als Kontrollgruppe festgelegt
+
+```{r}
+#Festlegen der Kontrollgruppe
+dds$condition <- relevel(dds$condition, ref = "C")
+```
+#### Frage: Warum ist das wichtig? Warum wird der Buchstabe "C" hier verwendet?
+* Mit dem durchgeführten Befehl wird das Referenzlevel (die Kontrollgruppe) festgelegt  
+* R wählt ein Referenzniveau für Faktoren basierend auf der alphabetischen Reihenfolge  
+* Würde man DESeq2 nicht mitteilen, mit welcher Gruppe man vergleichen möchte (bzw. welche Gruppe die Kontrollgruppe darstellt) führt er die Vergleiche auf Basis der alphabetischen Reihenfolge durch  
+  * Da „B“ im Alphabet vor „C“ kommt, würde DESeq2 fälschlicherweise „B“ als Kontrollgruppe auswählen  
+* Mit diesem Befehl wird in DESeq2 explizit die Faktorstufe festgelegt  
+* „B“ steht hier für Batch und „C“ steht hier für Chemostat  
+    o	Das sind die jeweiligen Bedingungen, unter denen die Hefekulturen gewachsen sind  
+Quelle: https://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
+
+### Aufgabe 10b: Durchführen einer differentiel exprimierten Genanalyse
+```{r}
+#Differentialexpressions-Analyse
+dds_analized= DESeq(dds)
+
+```
+### Aufgabe 10c: Anzahl der Gene, die differentiell exprimiert sind -> adj. p-Wert<0.05 & |log2 FC|>2
+```{r}
+#Results-Funktion aufrufen, um die analysierten Werte zu erhalten 
+res=results(dds_analized)
+deg= res[which(abs(res$log2FoldChange) > 2  & res$padj < 0.05),]
+deg
+```
+#### Frage: Wie viele Gene sind differentiell exprimiert?
+* Es sind insgesamt 460 Gene differentiell exprimiert 
+
+
+#### Aufgabe 10d: Voklkanoplot anzeigen lassen
+```{r}
+plot(x=res$log2FoldChange, y= -log(res$padj, 10), xlab= "Log2 Fold Change", ylab= "-log10(adj. P-Value)", main= "Volcano-Plot")
+abline(h = -log10(0.05))
+abline(v = -2)
+abline(v = 2)
+```
+
+### Aufgabe 10e: 5 differentiell exprimierte Gene filtern
+```{r}
+ordered_deg= deg[order(deg$log2FoldChange, deg$padj),]
+head(ordered_deg,3)
+tail(ordered_deg,3)
+```
+### Aufgabe 10d
+
+**Gen-ID**  
+NM_001179407.3 (runter reguliert) *1  
+**Funktion**  
+
+* Bevorzugter Name des transkribierten Proteins: Rgi2p  
+* Beteiligt am Energiestoffwechsel unter respiratorischen Bedingungen  
+* Expression wird unter Kohlenstofflimitierung induziert und unter hohem Glukosegehalt unterdrückt
+
+**Interpretation** 
+
+* Eine starke Runterregulation könnte daher kommen, dass in der Batch-Kultur ein hoher bzw. immer ansteigender CO2-Anteil besteht  
+* Unter aeroben Bedingungen kann Saccharomyces cerevisiae weniger effizient Glukose umsetzten, sodass sich der Glukosegehalt anhäufen könnte und dadurch die Hemmung der Transkription des Gens unterdrückt wird   
+
+**Gen-ID**    
+NM_001182681.1 (runter reguliert) *2      
+**Funktion**
+
+* Bevorzugter Name des transkribierten Proteins: Sip18p  
+* Wichtig für den „Austrocknungs-Wiederbefeuchtungs-Prozess“  
+* Ein Prozess bei dem biologischen Material vollständig getrocknet und dann wieder mit Wasser rehydriert wird  
+* Expression wird durch Osmotischen Stress induziert   
+
+**Interpretation**
+
+* Dadurch, dass die Expression dieses Gens durch osmotischen Stress gefördert wird, müsste man annehmen, dass in der Batch-Kultur die Umgebung keine hohe Konzentration an gelösten Stoffen habe  
+* Dies widerspricht jedoch der Tatsache, dass in der Batchkultur eine Anhäufung von Abfallstoffen und womöglich auch Glukose (siehe oben) vorliegt (wobei der Glukose-Gehalt auch allmählich abnehmen sollte, da dieser, zwar nicht so effizient wie in der Zellatmung, aber im Gärungsprozess verbraucht)  
+* Es könnte aber auch sein, dass nur bestimmte Stoffe bzw. andere Stoffe den osmotischen Stress auslösen, welche jedoch in der Batch-Kultur verbraucht sind und somit nicht mehr in ausreichender Menge vorhanden sind, um einen osmotischen Stress zu verursachen  
+
+**Gen-ID**    
+NM_001184037.1 (runter reguliert) *3      
+**Funktion**  
+
+* Bevorzugter Name des transkribierten Proteins: Gre1p  
+* Ebenfalls ein Protein, welches für den „Austrocknungs-Wiederbefeuchtungs-Prozess“ wichtig ist  
+* Wird ebenfalls durch Stress (osmotisch, ionisch, Wassermangel etc.) induziert 
+
+**Interpretation**
+
+* Erklärung siehe Sip18p  
+
+
+**Gen-ID**    
+NM_001179222.2 (hoch reguliert) *4       
+**Funktion**  
+
+* Hexose Transporter: HXT4  
+* Siehe HXT3  
+
+**Interpretation** 
+
+* Siehe HXT3  
+
+**Gen-ID**    
+NM_001180653.1 (hoch reguliert) *5      
+**Funktion**  
+
+* Hexose Transporter: HXT3  
+* Ermöglicht die Aktivität des transmembranen Transport von Glukose   
+* Befindet sich überwiegend in der Plasmamembran  
+* Expression wird bei niedrigem oder hohem Glukose-Gehalt induziert 
+
+**Interpretation**
+
+* Dadurch, dass in der Batch-Kultur alle Nährstoffe nach und nach verbraucht werden, ohne das neues Nährmedium zugefügt wird, könnte ein Grund für die hohe Regulation des Gens ein, dass die Zelle versucht vermehrt Glukose in die Zelle „einzuschleusen“, da der Glukosegehalt durch den Gärungsprozess bedingt durch einen möglichen Sauerstoffmangel, in der Zellumgebung allmählich abnimmt  
+
+**Quellen**
+
+*1: https://www.ncbi.nlm.nih.gov/gene/?term=NM_001179407.3#summary  
+*2: https://www.ncbi.nlm.nih.gov/gene/?term=NM_001182681.1  
+*3: https://www.ncbi.nlm.nih.gov/gene/?term=NM_001184037.1  
+*4: https://www.ncbi.nlm.nih.gov/gene/?term=NM_001179222.2   
+*5: https://www.ncbi.nlm.nih.gov/gene/?term=NM_001180653.1  
+
+## Aufgabe 11: Heatmaps
+### Aufgabe 11a: 10 differentiell exprimierte Gene nit höchstem bzw. niedrigstem log-FC
+```{r}
+under_expressed= head(ordered_deg,10)
+over_expressed=tail(ordered_deg, 10)
+significant_genes = rbind(under_expressed, over_expressed)
+significant_genes
+
+```
+#### rlog()-Funktion auf die Daten anwenden
+```{r}
+#Auf das DESeqDataSet mit den analysierten Daten, wird nun die rlog()-Funktion angewendet
+dds_rlog= rlog(dds_analized)
+
+#Mit der assay()-Funktion wird die matrix extrahiert
+res_rlog=assay(dds_rlog)
+head(res_rlog)
+
+```
+#### Frage: Was macht die rlog() Funktion?
+*	= „regularized log“  
+* Die Funktion wandelt die Reads auf die log2-Skala um, so dass Unterschiede zwischen Stichproben für Zeilen mit kleinen Reads minimiert werden und eine Normalisierung im Hinblick auf die Bibliotheksgröße erfolgt  
+* Es hat zudem einen varianzstabilisierenden Effekt     
+* Die Abhängigkeit de Varianz zum Mittelwert sollen dadurch beseitigt werden, insbesondere die hohe Varianz der Reads, wenn der Mittelwert niedrig ist   
+* Die Transformation ist ebenfalls wichtig, um z.B. Ausreißer zu erkennen oder auch Clustering durchzuführen  
+
+Quellen: https://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
+https://rdrr.io/bioc/DESeq2/man/rlog.html     
+
+
+#### Heatmap erstellen
+```{r}
+library(gplots)
+#die Gene-ID's von significant_genes aus dds_rlog rausfiltern
+expr_significant_genes= res_rlog[rownames(significant_genes),]
+
+#Heatmap darstellen lassen
+heatmap.2(expr_significant_genes, scale = "row", trace = "none", density.info = "none", cexRow=.5)
+
+```
+#### Matrix beschreiben  
+
+* Es ist erkennbar, dass die ausgewählten Gene deutlich in der Treatment-Kultur bzw. in der Batch-Kultur entweder über- oder unter exprimiert werden  
+* Dies ist auch anhand des Clustering der Samples zu erkennen. Die Batch-Kultur wird zusammen in ein Cluster gefasst sowie auch die Chemostat-Kultur. Dann erst erfolgt ein Clustering der Kontroll- & Treatment-Kultur.  
+* Zudem ist auch ein Clustering der Gene erkennbar. Gene mit ähnlicher Expression werden hier zu einem Cluster zusammengefasst.  
+* Es sind aus den 10 ausgewählten Genen, keine ähnlichen Expressionen zwischen der Kontroll- und Treatment-Kultur erkennbar, woraus sich schlussfolgern lässt, dass die Expression der Genprodukte zwischen diesen Gruppen unterschiedlich ist.   
+* Die Samples in der jeweiligen Kontroll- oder Treatment-Kultur haben alle eine ähnliche Expression bzw. unterscheiden sie sich kaum. Sie exprimieren gleich stark.   
+* Man muss aber auch dazu beachten, dass dies nur eine relative Darstellung der Expressionswerte ist (es werden nicht die exakten Expressionswerte verwendet), da wir im Vorhinein die Expressionswerte logarithmiert haben, um die Werte auf Hinblick der Bibliotheksgröße zu normalisieren.  
+  * Grund: Die Expressionswerte sollen dadurch vergleichbarer sein  
+
+## Aufgabe 12: Funktionale Analyse
+#### Gene auf p-Wert <0.01 ist & deren log FC< -4 filtern 
+```{r}
+functional_analysis= res[which(res$log2FoldChange < -4  & res$padj < 0.01),]
+functional_analysis
+```
+### Aufgabe 12a: Gen-ID's filtern 
+```{r}
+functional_analysis_rownames= rownames(functional_analysis)
+```
+
+#### Rownames in eine Datei (GenNamen.txt) schreiben 
+```{r}
+write(functional_analysis_rownames,file= "GenNamen", sep= "\t")
+```
+
+###Aufgabe 12b: Interpretation der Daten
+
+* Es fällt auf das vor allem folgende biologische Prozesse einen signifikanten Effekt durch die der übergebenen differentiell exprimierten Gene haben:  
+
+* Transmembrane Prozesse (+)  z.B.  
+  * Kohlenhydrat-Transmembrantransport (z.B. Glukose, Acetat)  
+  * Ammonium-Transmembrantransport  
+  * **Biologischer Zusammenhang**: Der Transmembrantransport von Nährstoffen und Abfallprodukten ist ein essenzieller Prozess, der das Wachstum und die Lebensfähigkeit der Zellen in einer Batch-Kultur direkt beeinflusst. Die Unterexpression der darunterfallenden Gene scheint wohl den Transport-Prozess zu induzieren bzw. zu erhöhen.  
+  * Da nach der Wachstumsphase der Batch-Kultur immer weniger Nährmedium zur Verfügung steht könnte eine Art „Gegenregulation“ (um vermehrt Nährstoffe in der Zelle zu transportieren) eine Verminderung der Gene verursachen  
+  
+* Gärungsprozess (+) z.B.  
+  * Ethanol-Stoffwechselprozess  
+  * **Biologischer Zusammenhang**: In einer Batch-Kultur, finden vermehrt Gärungsprozesse, da der Nähstoffgehalt (unter anderem Sauerstoff) nach der Wachstumsphase immer mehr abnimmt und sie anfangen unter anaeroben Bedingungen wachsen. Dies ist ein wichtiger Prozess in der Alkoholische Gärung, welches dazu dient um aus Glukosemolekülen Energie zu gewinnen  
+    
+* DNA und RNA-Prozesse (-) z.B.  
+  * RNA-Verarbeitung  
+  * Pentose-Phosphatweg  
+  * **Biologischer Zusammenhang**: Da es aufgrund des immer abnehmenden Nährmediums das Wachstum der Batch-Kultur immer mehr abnimmt nimmt auch die Replikation des Genmaterials in der Zelle und die Bereitstellung der dafür benötigten Bausteine zunehmend ab  
+    
+* (energiegewinnende) Stoffwechselprozesse (-) z.B.  
+  * Zuckerstoffwechsel  
+  * Proteinstoffwechsel  
+  * **Biologischer Zusammenhang**: Da es zunehmend zu einem Mangel an Nährstoffen im Nährmedium kommt, werden damit einhergehend auch die Stoffwechselprozesse heruntergefahren, welche diese (v.a. Makronährstoffe) verarbeiten sollen, da sie nicht mehr in ausreichender bzw. in immer weniger werdender Menge vorhanden sind.   
+    
+* (effizienzsteigernde) Stoffwechsel-Prozesse (+) z.B.  
+  * Effizienz der Stickstoffnutzung (Nitrogen Utilization)  
+  * **Biologischer Zusammenhang**: Da es zu einer Abnahme der Nährstoffe im Nährmedium kommt, werden Prozesse in den Organismen gefördert, um die übrigen Ressourcen effizienter für sich nutzen zu können, um ein vorzeitiges Absterben des Organismus zu verhindert. In dem Beispiel wäre es der Verbrauch von Stickstoff.   
+    
+* Stoffwechselprozesse (bzgl. Toxischer Stoffe) (+) z.B.  
+  * Katabolischer Prozess von Carbonsäuren  
+  * Katabolischer Prozess von Ketonen   
+  * **Biologischer Zusammenhang**: Es sind überwiegend katabolische (abbauende) Prozesse zu finden. Dies könnte daran liegen, dass aufgrund der Zunahme der toxischen Stoffe bzw. von Abfallprodukten im Nährmedium, der Abbau dieser Stoffe in den Organismen erhöht werden muss, um diesem entgegen zu wirken (Regulatorische Wirkung).   
+
+
+### Aufgabe 12c: Gene, die über FC 4 liegen 
+```{r}
+functional_analysis_over4= res[which(res$log2FoldChange > 3.95 & res$padj < 0.01),]
+functional_analysis_over4
+```
+#### Frage: Warum macht es keinen Sinn, eine GO Analyse nach dem einzigen up-regulated Gen (FC >4,adj. pValue<0.01) durchzuführen?
+* Bei zu wenigen oder wie hier nur einem hochregulierten Gen gibt es keine genügend große Gruppe von Genen, um statistisch signifikante oder aussagekräftige biologische Prozesse oder Funktionen zu identifizieren  
+* Der hypergeometrische Test kann dann keine robusten statistischen Schlussfolgerungen liefern  
+
